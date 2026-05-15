@@ -274,6 +274,34 @@
     .score-col label { text-align: center; }
     .score-col input { text-align: center; padding-left: 8px; padding-right: 8px; }
 
+    /* Admin */
+    .btn-danger {
+      background: var(--red);
+      border: none;
+      border-radius: 7px;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 700;
+      padding: 11px 24px;
+      transition: opacity 0.15s;
+      width: 100%;
+      margin-top: 8px;
+    }
+    .btn-danger:hover { opacity: 0.88; }
+    .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .admin-warning {
+      background: #1a0a0a;
+      border: 1px solid var(--red);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      color: #f87171;
+    }
+
     /* Setup banner */
     .setup-banner {
       background: #1c1400;
@@ -308,6 +336,7 @@
     <button class="active" onclick="show('leaderboard', this)">Leaderboard</button>
     <button onclick="show('report', this)">Report Match</button>
     <button onclick="show('join', this)">Join</button>
+    <button id="adminNavBtn" style="display:none;color:#ef4444" onclick="show('admin', this)">Admin</button>
   </nav>
 </header>
 
@@ -372,6 +401,19 @@
       <label>Your Name</label>
       <input type="text" id="nameInput" placeholder="First Last" maxlength="40" />
       <button class="btn" id="joinBtn" onclick="joinLadder()">Join</button>
+    </div>
+  </div>
+
+  <!-- ADMIN -->
+  <div class="page" id="admin">
+    <h2>Admin</h2>
+    <div class="admin-warning">
+      This resets all player ELO ratings to 1000 and clears all match history. This cannot be undone.
+    </div>
+    <div class="card">
+      <label>Type RESET to confirm</label>
+      <input type="text" id="resetConfirm" placeholder="RESET" oninput="document.getElementById('resetBtn').disabled = this.value !== 'RESET'" />
+      <button class="btn-danger" id="resetBtn" disabled onclick="resetSeason()">Reset Season</button>
     </div>
   </div>
 </main>
@@ -629,6 +671,28 @@
 
   function esc(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ─── ADMIN ────────────────────────────────────────────────────────────────
+  if (new URLSearchParams(window.location.search).get('admin') === 'true') {
+    document.getElementById('adminNavBtn').style.display = '';
+  }
+
+  async function resetSeason() {
+    const btn = document.getElementById('resetBtn');
+    btn.disabled = true;
+    btn.textContent = 'Resetting...';
+
+    const { error: delErr } = await sb.from('games').delete().not('id', 'is', null);
+    if (delErr) { btn.disabled = false; btn.textContent = 'Reset Season'; return toast('Failed to clear matches: ' + delErr.message, 'err'); }
+
+    const { error: updErr } = await sb.from('players').update({ elo: 1000, wins: 0, losses: 0, streak: 0 }).not('id', 'is', null);
+    if (updErr) { btn.disabled = false; btn.textContent = 'Reset Season'; return toast('Failed to reset players: ' + updErr.message, 'err'); }
+
+    document.getElementById('resetConfirm').value = '';
+    btn.textContent = 'Reset Season';
+    toast('Season reset. All ELOs back to 1000.', 'ok');
+    loadLeaderboard();
   }
 
   // ─── INIT ─────────────────────────────────────────────────────────────────
