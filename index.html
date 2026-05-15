@@ -274,6 +274,60 @@
     .score-col label { text-align: center; }
     .score-col input { text-align: center; padding-left: 8px; padding-right: 8px; }
 
+    /* Match list */
+    .matches-heading { font-size: 1rem; font-weight: 600; margin: 28px 0 12px; }
+
+    .match-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin-bottom: 8px;
+    }
+
+    .match-main {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .match-date { font-size: 0.75rem; color: var(--text-muted); min-width: 60px; }
+    .match-players { flex: 1; font-size: 0.9rem; min-width: 160px; }
+    .match-score-badge { color: var(--accent); font-weight: 700; }
+    .match-elo-change { font-size: 0.75rem; color: var(--text-muted); white-space: nowrap; }
+
+    .match-actions { display: flex; gap: 6px; margin-left: auto; }
+
+    .btn-sm {
+      padding: 5px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      border-radius: 5px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: opacity 0.15s;
+    }
+    .btn-sm:hover { opacity: 0.8; }
+
+    .btn-edit { background: var(--surface2); color: var(--text); border-color: var(--border); }
+    .btn-del  { background: transparent; color: var(--red); border-color: var(--red); }
+    .btn-save { background: var(--accent); color: #000; }
+    .btn-cancel-sm { background: var(--surface2); color: var(--text); border-color: var(--border); }
+
+    .match-edit-row {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .match-edit-row.open { display: flex; }
+    .match-edit-row input { margin-bottom: 0; width: 64px; text-align: center; padding: 8px; }
+    .match-edit-label { font-size: 0.8rem; color: var(--text-muted); }
+
     /* Admin */
     .btn-danger {
       background: var(--red);
@@ -415,6 +469,9 @@
       <input type="text" id="resetConfirm" placeholder="RESET" oninput="document.getElementById('resetBtn').disabled = this.value !== 'RESET'" />
       <button class="btn-danger" id="resetBtn" disabled onclick="resetSeason()">Reset Season</button>
     </div>
+
+    <h3 class="matches-heading">Recent Matches</h3>
+    <div id="matchesList"><div class="empty">Loading...</div></div>
   </div>
 </main>
 
@@ -441,6 +498,7 @@
     document.getElementById(id).classList.add('active');
     btn.classList.add('active');
     if (id === 'report') loadPlayers();
+    if (id === 'admin') loadMatches();
   }
 
   // ─── ELO ──────────────────────────────────────────────────────────────────
@@ -671,6 +729,115 @@
 
   function esc(str) {
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ─── MATCH LIST (ADMIN) ───────────────────────────────────────────────────
+  async function loadMatches() {
+    const el = document.getElementById('matchesList');
+    el.innerHTML = '<div class="empty">Loading...</div>';
+
+    const { data, error } = await sb
+      .from('games')
+      .select('*, winner:winner_id(id, name, elo), loser:loser_id(id, name, elo)')
+      .order('played_at', { ascending: false })
+      .limit(100);
+
+    if (error || !data) { el.innerHTML = '<div class="empty">Error loading matches.</div>'; return; }
+    if (!data.length) { el.innerHTML = '<div class="empty">No matches yet.</div>'; return; }
+
+    el.innerHTML = '';
+    data.forEach(m => {
+      const div = document.createElement('div');
+      div.className = 'match-item';
+      div.id = `match-${m.id}`;
+
+      const date = new Date(m.played_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const wDiff = m.winner_elo_after - m.winner_elo_before;
+      const lDiff = m.loser_elo_after - m.loser_elo_before;
+      const scoreStr = m.winner_score != null ? `${m.winner_score}–${m.loser_score}` : '–';
+
+      div.innerHTML = `
+        <div class="match-main">
+          <span class="match-date">${date}</span>
+          <span class="match-players">
+            <strong>${esc(m.winner.name)}</strong>
+            <span class="match-score-badge"> ${scoreStr} </span>
+            ${esc(m.loser.name)}
+          </span>
+          <span class="match-elo-change">+${wDiff} / ${lDiff}</span>
+          <div class="match-actions">
+            <button class="btn-sm btn-edit" onclick="toggleEdit('${m.id}')">Edit</button>
+            <button class="btn-sm btn-del" onclick="deleteMatch('${m.id}', '${m.winner_id}', '${m.loser_id}', ${wDiff}, ${lDiff})">Delete</button>
+          </div>
+        </div>
+        <div class="match-edit-row" id="edit-${m.id}">
+          <span class="match-edit-label">Score:</span>
+          <input type="number" id="ews-${m.id}" min="1" max="99" value="${m.winner_score ?? ''}" placeholder="W" />
+          <span style="color:var(--text-muted)">–</span>
+          <input type="number" id="els-${m.id}" min="0" max="99" value="${m.loser_score ?? ''}" placeholder="L" />
+          <button class="btn-sm btn-save" onclick="saveEdit('${m.id}','${m.winner_id}','${m.loser_id}',${m.winner_elo_before},${m.loser_elo_before},${m.winner_elo_after},${m.loser_elo_after})">Save</button>
+          <button class="btn-sm btn-cancel-sm" onclick="toggleEdit('${m.id}')">Cancel</button>
+        </div>
+      `;
+      el.appendChild(div);
+    });
+  }
+
+  function toggleEdit(id) {
+    document.getElementById(`edit-${id}`).classList.toggle('open');
+  }
+
+  async function deleteMatch(id, winnerId, loserId, wDiff, lDiff) {
+    if (!confirm('Delete this match and reverse its ELO changes?')) return;
+
+    const { data: players } = await sb.from('players').select('id, elo, wins, losses').in('id', [winnerId, loserId]);
+    const winner = players.find(p => p.id === winnerId);
+    const loser  = players.find(p => p.id === loserId);
+
+    const { error } = await sb.from('games').delete().eq('id', id);
+    if (error) return toast('Failed to delete match.', 'err');
+
+    await Promise.all([
+      sb.from('players').update({ elo: winner.elo - wDiff, wins: Math.max(0, (winner.wins || 1) - 1) }).eq('id', winnerId),
+      sb.from('players').update({ elo: loser.elo  - lDiff, losses: Math.max(0, (loser.losses || 1) - 1) }).eq('id', loserId),
+    ]);
+
+    toast('Match deleted, ELO reversed.', 'ok');
+    loadMatches();
+    loadLeaderboard();
+  }
+
+  async function saveEdit(id, winnerId, loserId, winnerEloBefore, loserEloBefore, winnerEloAfter, loserEloAfter) {
+    const newWS = parseInt(document.getElementById(`ews-${id}`).value);
+    const newLS = parseInt(document.getElementById(`els-${id}`).value);
+
+    if (isNaN(newWS) || isNaN(newLS) || newWS <= newLS || newWS < 1 || newLS < 0) {
+      return toast("Winner's score must be higher than loser's.", 'err');
+    }
+
+    const newCalc = calcSeriesElo(winnerEloBefore, loserEloBefore, newWS, newLS);
+    const wAdjust = newCalc.winnerDiff - (winnerEloAfter - winnerEloBefore);
+    const lAdjust = newCalc.loserDiff  - (loserEloAfter  - loserEloBefore);
+
+    const { data: players } = await sb.from('players').select('id, elo').in('id', [winnerId, loserId]);
+    const winner = players.find(p => p.id === winnerId);
+    const loser  = players.find(p => p.id === loserId);
+
+    const { error } = await sb.from('games').update({
+      winner_score: newWS, loser_score: newLS,
+      winner_elo_after: newCalc.winnerNew, loser_elo_after: newCalc.loserNew,
+    }).eq('id', id);
+
+    if (error) return toast('Failed to update match.', 'err');
+
+    await Promise.all([
+      sb.from('players').update({ elo: winner.elo + wAdjust }).eq('id', winnerId),
+      sb.from('players').update({ elo: loser.elo  + lAdjust }).eq('id', loserId),
+    ]);
+
+    toast('Match updated.', 'ok');
+    loadMatches();
+    loadLeaderboard();
   }
 
   // ─── ADMIN ────────────────────────────────────────────────────────────────
