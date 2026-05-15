@@ -255,6 +255,25 @@
     }
     .streak.hot { color: var(--accent); }
 
+    /* Player + score row */
+    .player-score-row {
+      display: flex;
+      gap: 10px;
+      align-items: flex-end;
+      margin-bottom: 18px;
+    }
+
+    .player-score-row .player-col { flex: 1; }
+    .player-score-row .score-col { width: 72px; }
+
+    .player-score-row select,
+    .player-score-row input {
+      margin-bottom: 0;
+    }
+
+    .score-col label { text-align: center; }
+    .score-col input { text-align: center; padding-left: 8px; padding-right: 8px; }
+
     /* Setup banner */
     .setup-banner {
       background: #1c1400;
@@ -287,7 +306,7 @@
   <div class="logo">🏓 <span>Ping Pong</span> Tracker</div>
   <nav>
     <button class="active" onclick="show('leaderboard', this)">Leaderboard</button>
-    <button onclick="show('report', this)">Report Game</button>
+    <button onclick="show('report', this)">Report Match</button>
     <button onclick="show('join', this)">Join</button>
   </nav>
 </header>
@@ -308,25 +327,41 @@
     </div>
   </div>
 
-  <!-- REPORT GAME -->
+  <!-- REPORT MATCH -->
   <div class="page" id="report">
-    <h2>Report a Game</h2>
+    <h2>Report a Match</h2>
     <div class="card">
-      <label>Winner</label>
-      <select id="winnerSel">
-        <option value="">Select winner...</option>
-      </select>
+      <div class="player-score-row">
+        <div class="player-col">
+          <label>Winner</label>
+          <select id="winnerSel">
+            <option value="">Select winner...</option>
+          </select>
+        </div>
+        <div class="score-col">
+          <label>Wins</label>
+          <input type="number" id="winnerScore" min="1" max="99" placeholder="4" />
+        </div>
+      </div>
 
       <div class="vs">vs</div>
 
-      <label>Loser</label>
-      <select id="loserSel">
-        <option value="">Select loser...</option>
-      </select>
+      <div class="player-score-row">
+        <div class="player-col">
+          <label>Loser</label>
+          <select id="loserSel">
+            <option value="">Select loser...</option>
+          </select>
+        </div>
+        <div class="score-col">
+          <label>Wins</label>
+          <input type="number" id="loserScore" min="0" max="99" placeholder="3" />
+        </div>
+      </div>
 
       <div class="elo-preview" id="eloPreview"></div>
 
-      <button class="btn" id="reportBtn" onclick="reportGame()">Submit Result</button>
+      <button class="btn" id="reportBtn" onclick="reportMatch()">Submit Result</button>
     </div>
   </div>
 
@@ -377,14 +412,17 @@
     return Math.round(rating + K * (score - expected));
   }
 
-  function calcElo(winnerElo, loserElo) {
+  function calcSeriesElo(winnerElo, loserElo, winnerWins, loserWins) {
     const ew = expectedScore(winnerElo, loserElo);
     const el = expectedScore(loserElo, winnerElo);
+    const total = winnerWins + loserWins;
+    const winnerDiff = Math.round(K * (winnerWins - total * ew));
+    const loserDiff  = Math.round(K * (loserWins  - total * el));
     return {
-      winnerNew: newElo(winnerElo, ew, 1),
-      loserNew:  newElo(loserElo,  el, 0),
-      winnerDiff: newElo(winnerElo, ew, 1) - winnerElo,
-      loserDiff:  newElo(loserElo,  el, 0) - loserElo,
+      winnerNew: winnerElo + winnerDiff,
+      loserNew:  loserElo  + loserDiff,
+      winnerDiff,
+      loserDiff,
     };
   }
 
@@ -462,15 +500,20 @@
   function updateEloPreview() {
     const wId = document.getElementById('winnerSel').value;
     const lId = document.getElementById('loserSel').value;
+    const wScore = parseInt(document.getElementById('winnerScore').value);
+    const lScore = parseInt(document.getElementById('loserScore').value);
     const preview = document.getElementById('eloPreview');
 
-    if (!wId || !lId || wId === lId) { preview.classList.remove('visible'); return; }
+    if (!wId || !lId || wId === lId || isNaN(wScore) || isNaN(lScore) || wScore <= lScore || wScore < 1 || lScore < 0) {
+      preview.classList.remove('visible');
+      return;
+    }
 
     const w = playerCache.find(p => p.id === wId);
     const l = playerCache.find(p => p.id === lId);
     if (!w || !l) return;
 
-    const { winnerDiff, loserDiff } = calcElo(w.elo, l.elo);
+    const { winnerDiff, loserDiff } = calcSeriesElo(w.elo, l.elo, wScore, lScore);
 
     preview.classList.add('visible');
     preview.innerHTML = `
@@ -484,19 +527,26 @@
 
   document.getElementById('winnerSel').addEventListener('change', updateEloPreview);
   document.getElementById('loserSel').addEventListener('change', updateEloPreview);
+  document.getElementById('winnerScore').addEventListener('input', updateEloPreview);
+  document.getElementById('loserScore').addEventListener('input', updateEloPreview);
 
-  // ─── REPORT GAME ──────────────────────────────────────────────────────────
-  async function reportGame() {
+  // ─── REPORT MATCH ─────────────────────────────────────────────────────────
+  async function reportMatch() {
     const wId = document.getElementById('winnerSel').value;
     const lId = document.getElementById('loserSel').value;
+    const wScore = parseInt(document.getElementById('winnerScore').value);
+    const lScore = parseInt(document.getElementById('loserScore').value);
 
     if (!wId || !lId) return toast('Select both players.', 'err');
-    if (wId === lId) return toast("A player can't beat themselves.", 'err');
+    if (wId === lId) return toast("A player can't play themselves.", 'err');
+    if (isNaN(wScore) || isNaN(lScore)) return toast('Enter the match score.', 'err');
+    if (lScore < 0 || wScore < 1) return toast('Scores must be positive.', 'err');
+    if (wScore <= lScore) return toast("Winner's score must be higher.", 'err');
 
     const w = playerCache.find(p => p.id === wId);
     const l = playerCache.find(p => p.id === lId);
 
-    const { winnerNew, loserNew, winnerDiff, loserDiff } = calcElo(w.elo, l.elo);
+    const { winnerNew, loserNew, winnerDiff, loserDiff } = calcSeriesElo(w.elo, l.elo, wScore, lScore);
 
     const btn = document.getElementById('reportBtn');
     btn.disabled = true;
@@ -509,9 +559,11 @@
       loser_elo_before: l.elo,
       winner_elo_after: winnerNew,
       loser_elo_after: loserNew,
+      winner_score: wScore,
+      loser_score: lScore,
     });
 
-    if (gameErr) { btn.disabled = false; btn.textContent = 'Submit Result'; return toast('Error saving game.', 'err'); }
+    if (gameErr) { btn.disabled = false; btn.textContent = 'Submit Result'; return toast('Error saving match.', 'err'); }
 
     const wStreak = (w.streak > 0 ? w.streak : 0) + 1;
     const lStreak = (l.streak < 0 ? l.streak : 0) - 1;
@@ -525,8 +577,10 @@
     btn.textContent = 'Submit Result';
     document.getElementById('winnerSel').value = '';
     document.getElementById('loserSel').value = '';
+    document.getElementById('winnerScore').value = '';
+    document.getElementById('loserScore').value = '';
     document.getElementById('eloPreview').classList.remove('visible');
-    toast(`${w.name} +${winnerDiff} | ${l.name} ${loserDiff}`, 'ok');
+    toast(`${w.name} ${wScore}–${lScore} ${l.name} | +${winnerDiff} / ${loserDiff}`, 'ok');
     loadLeaderboard();
   }
 
