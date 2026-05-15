@@ -22,17 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inject Supabase credentials
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: |
-          echo "URL set: ${{ secrets.SUPABASE_URL != '' }}"
-          echo "KEY set: ${{ secrets.SUPABASE_ANON_KEY != '' }}"
-          sed -i "s|YOUR_SUPABASE_URL|${SUPABASE_URL}|g" index.html
-          sed -i "s|YOUR_SUPABASE_ANON_KEY|${SUPABASE_ANON_KEY}|g" index.html
-          grep -c "YOUR_SUPABASE" index.html && echo "INJECTION FAILED" || echo "Injection OK"
-
       - uses: actions/configure-pages@v4
 
       - uses: actions/upload-pages-artifact@v3
